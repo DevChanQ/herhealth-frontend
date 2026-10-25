@@ -1,0 +1,73 @@
+import { test, expect } from '@playwright/test'
+test('all design screens render without errors or page overflow',async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message))
+ for(const route of ['patterns','calendar','questions','summary','symptoms','overlaps','guidance']){
+  await page.goto('/#'+route)
+  await expect(page.locator('h1')).toBeVisible()
+  await expect(page.locator('main')).not.toContainText('{{')
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),route+' must fit mobile').toBeTruthy()
+ }
+ expect(errors).toEqual([])
+})
+test('range and filters change the trend data',async({page})=>{
+ await page.goto('/')
+ await page.getByRole('button',{name:'3 cycles',exact:true}).click()
+ await expect(page.locator('.cycle-row').filter({hasText:'P1'})).toHaveCount(0)
+ await expect(page.locator('.cycle-row').filter({hasText:'P4'})).toHaveCount(1)
+ await page.getByRole('button',{name:'Filter patterns'}).click()
+ await page.getByRole('button',{name:'Sleep',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Sleep',exact:true})).toHaveAttribute('aria-pressed','false')
+ await page.screenshot({path:'/tmp/herhealth-patterns.png',fullPage:true})
+})
+test('calendar log and diary survive reload',async({page})=>{
+ await page.goto('/#calendar')
+ const period=page.getByRole('button',{name:/Period day/})
+ await period.click();await expect(period).toHaveAttribute('aria-pressed','true')
+ await page.getByRole('button',{name:'Abdominal cramps',exact:true}).click()
+ await page.locator('#d-feel').fill('A quiet day and a long walk.')
+ await page.reload()
+ await expect(page.getByRole('button',{name:/Period day/})).toHaveAttribute('aria-pressed','true')
+ await expect(page.getByRole('button',{name:'Abdominal cramps',exact:true})).toHaveAttribute('aria-pressed','true')
+ await expect(page.locator('#d-feel')).toHaveValue('A quiet day and a long walk.')
+ await page.getByRole('button',{name:'Next month'}).click()
+ await expect(page.getByRole('heading',{name:'November 2026'})).toBeVisible()
+ await page.screenshot({path:'/tmp/herhealth-calendar.png',fullPage:true})
+})
+test('questionnaire selections populate summary and download',async({page})=>{
+ await page.goto('/#questions')
+ await page.getByRole('button',{name:/Diet changes/}).click()
+ await page.getByRole('button',{name:/Add medication or solution/}).click()
+ await page.getByRole('textbox',{name:'Medication or solution'}).fill('Test medicine 5 mg')
+ await page.getByRole('button',{name:'Add medication',exact:true}).click()
+ await page.getByRole('textbox',{name:/Anything you would/}).fill('Symptoms interrupted my sleep.')
+ await page.getByRole('link',{name:/Create summary for/}).click()
+ await expect(page.locator('main')).toContainText('Diet changes')
+ await expect(page.locator('main')).toContainText('Test medicine 5 mg')
+ await expect(page.locator('main')).toContainText('Symptoms interrupted my sleep.')
+ const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download text copy'}).click()
+ expect((await download).suggestedFilename()).toBe('herhealth-summary.txt')
+ await page.getByRole('switch').click()
+ await expect(page.locator('main')).not.toContainText('Cetirizine 10 mg')
+})
+test('heatmaps and pattern charts are rendered; guidance preferences toggle',async({page})=>{
+ await page.goto('/#symptoms')
+ await expect(page.locator('main')).toContainText('25 Apr')
+ await page.getByRole('link',{name:/View key patterns/}).click()
+ await expect(page.locator('h1')).toHaveText('Key Patterns and Overlaps')
+ await expect(page.locator('main svg[role=img]')).toHaveCount(7)
+ await page.goto('/#guidance')
+ const reminder=page.getByRole('switch',{name:'Sumatriptan reminder'})
+ await reminder.click();await expect(reminder).toHaveAttribute('aria-checked','false')
+})
+test('small and desktop viewports fit, navigation supports browser back',async({page})=>{
+ for(const width of [320,1440]){
+  await page.setViewportSize({width,height:900})
+  for(const route of ['patterns','calendar','questions','summary','guidance','symptoms','overlaps']){
+   await page.goto('/#'+route)
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${route} at ${width}`).toBeTruthy()
+  }
+ }
+ await page.goto('/#patterns');await page.getByRole('link',{name:'Cycle',exact:true}).click()
+ await expect(page.locator('h1')).toHaveText('Cycle')
+ await page.goBack();await expect(page.locator('h1')).toHaveText('Patterns')
+})
