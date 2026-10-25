@@ -71,3 +71,35 @@ test('small and desktop viewports fit, navigation supports browser back',async({
  await expect(page.locator('h1')).toHaveText('Cycle')
  await page.goBack();await expect(page.locator('h1')).toHaveText('Patterns')
 })
+test('top bar stays fixed and bottom tabs stay inside the viewport while scrolling', async ({ page }) => {
+ for (const width of [320, 390, 1440]) {
+  await page.setViewportSize({ width, height: 844 })
+  await page.goto('/#patterns')
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const header = page.locator('.brand')
+  const nav = page.getByRole('navigation', { name: 'Main navigation' })
+  const initialHeader = await header.boundingBox()
+  const heading = await page.locator('h1').boundingBox()
+  expect(initialHeader.y).toBe(0)
+  expect(heading.y).toBeGreaterThanOrEqual(initialHeader.height)
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+  const scrolledHeader = await header.boundingBox()
+  expect(scrolledHeader.y).toBe(0)
+  const bounds = await nav.boundingBox()
+  expect(bounds.x).toBeGreaterThanOrEqual(0)
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+  expect(bounds.y + bounds.height).toBe(844)
+  for (const tab of await nav.getByRole('link').all()) {
+   const rect = await tab.boundingBox()
+   expect(rect.x).toBeGreaterThanOrEqual(bounds.x)
+   expect(rect.x + rect.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+   expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + bounds.height)
+   expect(await tab.evaluate(el => {
+    const r = el.getBoundingClientRect()
+    return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
+   })).toBe(true)
+  }
+  const lastContent = await page.locator('.demo-note').boundingBox()
+  expect(lastContent.y + lastContent.height).toBeLessThanOrEqual(bounds.y)
+ }
+})
